@@ -41,8 +41,9 @@ if global_env.exists():
     load_dotenv(global_env)
 load_dotenv()
 
-# Add scripts to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+# Add project root to path so "scripts.*" imports resolve
+project_root = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(project_root))
 
 
 def format_result_preview(content: str, max_length: int = 200) -> str:
