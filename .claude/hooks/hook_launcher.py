@@ -54,6 +54,39 @@ def expand_path(path: str) -> str:
     return str(Path(path))
 
 
+def parse_allowlist(raw: str) -> list[Path]:
+    """Parse CC_ALLOWLIST into normalized paths."""
+    if not raw:
+        return []
+    parts = [p.strip() for p in raw.split(os.pathsep) if p.strip()]
+    return [Path(expand_path(p)).resolve() for p in parts]
+
+
+def get_project_dir(input_json: dict[str, Any] | None) -> str | None:
+    """Best-effort project directory for allowlist checks."""
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR")
+    if project_dir:
+        return project_dir
+    if isinstance(input_json, dict):
+        cwd = input_json.get("cwd")
+        if isinstance(cwd, str) and cwd:
+            return cwd
+    return None
+
+
+def project_is_allowlisted(project_dir: str | None, allowlist: list[Path]) -> bool:
+    """Return True if project_dir is within an allowlisted path."""
+    if not allowlist or not project_dir:
+        return False
+    proj = Path(expand_path(project_dir)).resolve()
+    proj_str = str(proj).casefold()
+    for allowed in allowlist:
+        allowed_str = str(allowed).casefold()
+        if proj_str == allowed_str or proj_str.startswith(allowed_str + os.sep):
+            return True
+    return False
+
+
 def get_hooks_dirs() -> list[Path]:
     """Get the Claude Code hooks directories.
 
@@ -153,6 +186,16 @@ def run_hook(
     Returns:
         Dict with keys: returncode, stdout, stderr
     """
+    allowlist = parse_allowlist(os.environ.get("CC_ALLOWLIST", "").strip())
+    if not project_is_allowlisted(get_project_dir(input_json), allowlist):
+        if os.environ.get("CC_ALLOWLIST_DEBUG", "").lower() in {"1", "true", "yes", "on"}:
+            return {
+                "returncode": 0,
+                "stdout": "{}",
+                "stderr": f"Hook '{name}' skipped (project not in CC_ALLOWLIST).",
+            }
+        return {"returncode": 0, "stdout": "{}", "stderr": ""}
+
     # Find Node.js
     node_path = find_node()
     if not node_path:
