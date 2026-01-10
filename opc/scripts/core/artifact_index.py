@@ -207,7 +207,10 @@ def parse_handoff(file_path: Path) -> dict:
         "session_uuid": session_uuid,  # UUID suffix from directory name (if present)
         "task_number": task_number,
         "file_path": str(file_path),
-        "task_summary": sections.get("what_was_done", sections.get("summary", ""))[:500],
+        "task_summary": sections.get(
+            "what_was_done",
+            sections.get("summary", sections.get("session_summary", "")),
+        )[:500],
         "what_worked": sections.get("what_worked", ""),
         "what_failed": sections.get("what_failed", ""),
         "key_decisions": sections.get("key_decisions", sections.get("decisions", "")),
