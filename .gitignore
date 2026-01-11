@@ -139,3 +139,5 @@ opc/README.md
 opc/LICENSE
 opc/.git/
 opc/.python-version
+
+opc/.tldrignore

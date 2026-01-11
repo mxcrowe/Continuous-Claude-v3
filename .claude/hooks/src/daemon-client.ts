@@ -10,7 +10,7 @@
  * - Graceful degradation when indexing
  */
 
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
 import { execSync, spawnSync } from 'child_process';
 import { join } from 'path';
 import * as net from 'net';
@@ -88,6 +88,27 @@ export interface ConnectionInfo {
 }
 
 /**
+ * Normalize path to match Python's Path behavior.
+ * On Windows: uppercase drive letter, backslashes.
+ * This ensures hash matches what Python daemon computes.
+ *
+ * @param pathStr - Path string to normalize
+ * @returns Normalized path matching Python's str(Path(x))
+ */
+function normalizePathForHash(pathStr: string): string {
+  if (process.platform === 'win32') {
+    // Convert forward slashes to backslashes (Python Path does this)
+    let normalized = pathStr.replace(/\//g, '\\');
+    // Uppercase the drive letter (Python Path does this)
+    if (/^[a-z]:/i.test(normalized)) {
+      normalized = normalized[0].toUpperCase() + normalized.slice(1);
+    }
+    return normalized;
+  }
+  return pathStr;
+}
+
+/**
  * Get connection info based on platform.
  * Mirrors the Python daemon's logic.
  *
@@ -95,7 +116,9 @@ export interface ConnectionInfo {
  * @returns Connection info for Unix socket or TCP
  */
 export function getConnectionInfo(projectDir: string): ConnectionInfo {
-  const hash = crypto.createHash('md5').update(projectDir).digest('hex').substring(0, 8);
+  // Normalize path to match Python's Path behavior for consistent hash
+  const normalizedPath = normalizePathForHash(projectDir);
+  const hash = crypto.createHash('md5').update(normalizedPath).digest('hex').substring(0, 8);
 
   if (process.platform === 'win32') {
     // TCP on localhost with deterministic port
@@ -115,7 +138,9 @@ export function getConnectionInfo(projectDir: string): ConnectionInfo {
  * @returns Socket path string (Unix only, use getConnectionInfo for cross-platform)
  */
 export function getSocketPath(projectDir: string): string {
-  const hash = crypto.createHash('md5').update(projectDir).digest('hex').substring(0, 8);
+  // Normalize path to match Python's Path behavior for consistent hash
+  const normalizedPath = normalizePathForHash(projectDir);
+  const hash = crypto.createHash('md5').update(normalizedPath).digest('hex').substring(0, 8);
   return `/tmp/tldr-${hash}.sock`;
 }
 
@@ -157,31 +182,16 @@ function isDaemonReachable(projectDir: string): boolean {
   const connInfo = getConnectionInfo(projectDir);
 
   if (connInfo.type === 'tcp') {
-    // On Windows, try to connect to TCP port
-    try {
-      const testSocket = new net.Socket();
-      testSocket.setTimeout(100);
-      let connected = false;
-
-      testSocket.on('connect', () => {
-        connected = true;
-        testSocket.destroy();
-      });
-
-      testSocket.on('error', () => {
-        testSocket.destroy();
-      });
-
-      testSocket.connect(connInfo.port!, connInfo.host!);
-      // Give it a moment
-      const end = Date.now() + 200;
-      while (Date.now() < end && !connected) {
-        // spin
-      }
-      return connected;
-    } catch {
+    // On Windows, check status file first (fast path)
+    const status = getStatusFile(projectDir);
+    if (status !== 'ready') {
       return false;
     }
+    // Status is ready - daemon should be running
+    // The async socket approach with busy-wait doesn't work in Node
+    // because the event loop doesn't run during the spin.
+    // Trust the status file instead.
+    return true;
   } else {
     // Unix socket - check file exists AND daemon is actually listening
     if (!existsSync(connInfo.path!)) {
@@ -392,23 +402,32 @@ export function queryDaemonSync(query: DaemonQuery, projectDir: string): DaemonR
     let result: string;
 
     if (connInfo.type === 'tcp') {
-      // Windows: Use PowerShell to communicate with TCP socket
+      // Windows: Use PowerShell with temp file to avoid escaping issues
       const psCommand = `
-        $client = New-Object System.Net.Sockets.TcpClient('${connInfo.host}', ${connInfo.port})
-        $stream = $client.GetStream()
-        $writer = New-Object System.IO.StreamWriter($stream)
-        $reader = New-Object System.IO.StreamReader($stream)
-        $writer.WriteLine('${input.replace(/'/g, "''")}')
-        $writer.Flush()
-        $response = $reader.ReadLine()
-        $client.Close()
-        Write-Output $response
-      `.trim();
+$client = New-Object System.Net.Sockets.TcpClient('${connInfo.host}', ${connInfo.port})
+$stream = $client.GetStream()
+$writer = New-Object System.IO.StreamWriter($stream)
+$reader = New-Object System.IO.StreamReader($stream)
+$writer.WriteLine('${input.replace(/'/g, "''")}')
+$writer.Flush()
+$response = $reader.ReadLine()
+$client.Close()
+Write-Output $response
+`.trim();
 
-      result = execSync(`powershell -Command "${psCommand.replace(/"/g, '\\"')}"`, {
-        encoding: 'utf-8',
-        timeout: QUERY_TIMEOUT,
-      });
+      // Write to temp file to avoid complex escaping
+      const tempFile = join(projectDir, '.tldr', 'query-' + Date.now() + '.ps1');
+      writeFileSync(tempFile, psCommand);
+
+      try {
+        result = execSync(`powershell -ExecutionPolicy Bypass -File "${tempFile}"`, {
+          encoding: 'utf-8',
+          timeout: QUERY_TIMEOUT,
+        });
+      } finally {
+        // Clean up temp file
+        try { unlinkSync(tempFile); } catch { /* ignore */ }
+      }
     } else {
       // Unix: Use nc (netcat) to communicate with Unix socket
       // echo '{"cmd":"ping"}' | nc -U /tmp/tldr-xxx.sock

@@ -9,7 +9,7 @@
  * Result: 95% token savings (50-500 tokens vs 3000-20000 raw)
  */
 
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, statSync } from 'fs';
 import { basename, extname } from 'path';
 import { queryDaemonSync, DaemonResponse } from './daemon-client';
 
@@ -367,7 +367,7 @@ async function main() {
 
   // Small files: TLDR overhead not worth it, just read directly
   try {
-    const stats = require('fs').statSync(filePath);
+    const stats = statSync(filePath);
     if (stats.size < 3000) {  // ~100 lines
       console.log('{}');
       return;
