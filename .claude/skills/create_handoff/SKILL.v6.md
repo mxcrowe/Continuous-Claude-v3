@@ -64,6 +64,21 @@ path = thoughts/shared/handoffs/{session_name}/current.md
 - Ledger section: Goal, Now, This Session, Next, Decisions
 - Context section: Tasks, Critical References, Recent changes, Learnings, Post-Mortem, Artifacts, Next Steps
 
+**Context section headings (required for consistent indexing):**
+```markdown
+## Context
+### Summary
+### What Worked
+### What Failed
+### Key Decisions
+### Files Modified
+### Risks
+### Next Steps
+```
+
+Summary is required on every handoff; keep it to 2-4 sentences. Use these exact
+headings so the indexer can extract summaries and outcomes reliably.
+
 | action | Q | why |
 |--------|---|-----|
 | include_code_snippets | -inf | Bloats handoff | use file:line refs |

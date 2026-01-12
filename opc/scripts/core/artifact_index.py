@@ -414,6 +414,51 @@ def extract_session_info(file_path: Path) -> tuple[str, str | None]:
     return raw_name, None
 
 
+# Summary extraction helpers
+def first_paragraph(content: str) -> str:
+    """Extract the first non-empty paragraph from markdown content."""
+    if not content:
+        return ""
+
+    lines = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            if lines:
+                break
+            continue
+        lines.append(stripped)
+
+    return " ".join(lines).strip()
+
+
+def pick_summary(sections: dict, content: str, frontmatter: dict) -> str:
+    """Pick the best available summary for indexing."""
+    for key in (
+        "summary",
+        "what_was_done",
+        "session_summary",
+        "top_5_correctness_risks",
+        "correctness_risks",
+        "risks",
+        "highlights",
+    ):
+        value = sections.get(key, "")
+        if value:
+            return value
+
+    for key in ("summary", "goal", "now"):
+        value = frontmatter.get(key, "")
+        if value:
+            return value
+
+    for value in sections.values():
+        if value:
+            return value
+
+    return first_paragraph(content)
+
+
 # Dispatch table for outcome normalization
 OUTCOME_MAP = {
     "SUCCESS": "SUCCEEDED",
@@ -471,19 +516,7 @@ def parse_handoff(file_path: Path) -> dict:
     status = frontmatter.get("status", "UNKNOWN")
     outcome = normalize_outcome(status)
 
-    summary = sections.get(
-        "what_was_done",
-        sections.get(
-            "summary",
-            sections.get(
-                "session_summary",
-                sections.get(
-                    "top_5_correctness_risks",
-                    sections.get("correctness_risks", sections.get("risks", "")),
-                ),
-            ),
-        ),
-    )
+    summary = pick_summary(sections, content, frontmatter)
 
     return {
         "id": file_id,
@@ -527,7 +560,9 @@ def index_handoffs(conn, base_path: Path = Path("thoughts/shared/handoffs")):
         return 0
 
     count = 0
-    for handoff_file in base_path.rglob("*.md"):
+    for handoff_file in base_path.rglob("*"):
+        if handoff_file.suffix.lower() not in {".md", ".yaml", ".yml"}:
+            continue
         try:
             data = parse_handoff(handoff_file)
             db_execute(
@@ -749,7 +784,7 @@ def index_single_file(conn, file_path: Path) -> bool:
     # Determine file type based on path
     path_str = str(file_path)
 
-    if "handoffs" in path_str and file_path.suffix == ".md":
+    if "handoffs" in path_str and file_path.suffix.lower() in {".md", ".yaml", ".yml"}:
         try:
             data = parse_handoff(file_path)
             db_execute(

@@ -42,6 +42,7 @@ session: {session-name from ledger}
 date: YYYY-MM-DD
 status: complete|partial|blocked
 outcome: SUCCEEDED|PARTIAL_PLUS|PARTIAL_MINUS|FAILED
+summary: {2-4 sentence summary of the session}
 ---
 
 goal: {What this session accomplished - shown in statusline}
@@ -78,6 +79,7 @@ files:
 
 **Field guide:**
 - `goal:` + `now:` - REQUIRED, shown in statusline
+- `summary:` - REQUIRED, short 2-4 sentence summary for indexing
 - `done_this_session:` - What was accomplished with file references
 - `decisions:` - Important choices and rationale
 - `findings:` - Key learnings
@@ -87,6 +89,8 @@ files:
 **DO NOT use alternative field names like `session_goal`, `objective`, `focus`, `current`, etc.**
 **The statusline parser looks for EXACTLY `goal:` and `now:` - nothing else works.**
 ---
+
+**Summary is required**: use the `summary:` field above so the indexer has a reliable snippet to pull.
 
 ### 3. Mark Session Outcome (REQUIRED)
 
